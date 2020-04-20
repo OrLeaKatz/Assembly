@@ -1,0 +1,417 @@
+;
+; project.asm
+;
+; Created: 1/27/2020 11:18:43 AM
+; Author : Or Katz, Yotam Hertz,Eli Markus 
+;
+;
+
+.include "8def.inc"
+
+
+.def    input_reg = r17
+.def    temp_reg  = r18
+.def    zero_reg    = r19
+.def    one_reg     = r20
+.def    row_reg = r21
+.def    clm_reg = r22
+.def    index_reg = r23
+.def    subr_param1_reg = r24
+.def    subr_param2_reg = r25
+
+.equ	NUM_OF_POSITIONS  =   16
+.equ    NUM_POSITIONS_PER_ROW = 4
+.equ    NUM_POSITION_PER_CLM1 = 0
+.equ    NUM_OF_ROWS = 4
+.equ    ALL_HIT_SHIP = 9
+.equ    LEFT_DIGIT_ONLY =  0xF0
+.equ    RIGHT_DIGIT_ONLY =  0x0F
+.equ    CLEAR_THE_POSITION = 3
+.equ    SET_POSITION_TO_X = 1
+.equ    SET_POSITION_TO_O = 0
+.equ    DISPLAY_CLEAR_CHAR = 0x0
+.equ    DISPLAY_X_CHAR = 0xE3
+.equ    DISPLAY_BOAT_CHAR = 0xB0
+.equ    DISPLAY_O_CHAR = 0x0
+.equ    ADVANCE_TO_NEXT_ROW_INCREMENT = 0x10
+.equ    MT_SHIP = 0xB0
+.equ    WATER = 0x0
+.equ    CHECKED = 0x11
+.equ    SHIP_HIT = 0xB1
+.equ    SHIP_SIZE = 0x3
+;data    
+.dseg
+.org 0xA0
+row0:	.byte  NUM_POSITIONS_PER_ROW  ; destination for data
+checkHere1: .byte 1
+.org 0xB0
+row1:	.byte  NUM_POSITIONS_PER_ROW  ; destination for data
+checkHere2: .byte 1
+.org 0xC0
+row2:	.byte  NUM_POSITIONS_PER_ROW  ; destination for data
+checkHere3: .byte 1
+.org 0xD0
+row3:	.byte  NUM_POSITIONS_PER_ROW  ; destination for data
+checkHere4: .byte 1
+
+.org 0x90
+row00: .byte NUM_POSITION_PER_CLM1
+checkThere00: .byte 1
+row11: .byte NUM_POSITION_PER_CLM1
+checkThere11: .byte 1
+row22: .byte NUM_POSITION_PER_CLM1
+checkThere22: .byte 1
+row33: .byte NUM_POSITION_PER_CLM1
+checkThere33: .byte 1
+row44: .byte NUM_POSITION_PER_CLM1
+checkThere44: .byte 1
+
+
+.org 0xe0
+row000: .byte NUM_POSITION_PER_CLM1
+checkThere000: .byte 1
+row111: .byte NUM_POSITION_PER_CLM1
+checkThere111: .byte 1
+row222: .byte NUM_POSITION_PER_CLM1
+checkThere222: .byte 1
+row333: .byte NUM_POSITION_PER_CLM1
+checkThere333: .byte 1
+row444: .byte NUM_POSITION_PER_CLM1
+checkThere444: .byte 1
+ 
+.cseg
+;code
+start: 
+	.org	0x00
+	ldi	r16,LOW(RAMEND)		; initialize
+	out	SPL,r16			; stack pointer
+	ldi	r16,HIGH(RAMEND)	; to RAMEND
+	out	SPH,r16			; "
+
+.	ldi zero_reg,0
+	ldi one_reg,1	
+	ldi temp_reg,  0x44     ; don't erase this!!
+	sts checkHere1,temp_reg  ; don't erase this!!
+	;add temp_reg,one_reg
+	sts checkHere2,temp_reg  ; don't erase this!!
+	;add temp_reg,one_reg
+	sts checkHere3,temp_reg  ; don't erase this!!
+	sts checkHere4,temp_reg
+	
+	sts checkThere00,temp_reg
+	sts checkThere11,temp_reg
+	sts checkThere22,temp_reg
+	sts checkThere33,temp_reg
+	sts checkThere44,temp_reg
+	sts checkThere000,temp_reg
+	sts checkThere111,temp_reg
+	sts checkThere222,temp_reg
+    sts checkThere333,temp_reg
+	sts checkThere444,temp_reg
+	  
+	;initialize index reg
+	ldi  index_reg,0
+
+	rcall clearEntireBoard
+	rcall putShip1
+	rcall putShip2
+	rcall putShip3 
+
+	;read  the input
+	ldi zH,high(GameInput*2)
+	ldi zL,low(GameInput*2)
+main:  
+	; [X] = input
+	mov xH,zero_reg
+	lpm xL,z
+	;temp_reg = board value
+	ld temp_reg, x
+	;if value == WATER
+	cpi temp_reg, WATER
+	;else if value == SHIP
+	brne check_ship
+	;was water so set to checked
+	ldi temp_reg, CHECKED
+	st  x,temp_reg
+	rjmp continue
+	;check for a SHIP
+check_ship:
+	;if value == SHIP
+	cpi temp_reg, MT_SHIP
+	;else DO NOTHING
+	brne continue
+	; if SHIP output SHIP_HIT
+	ldi temp_reg, SHIP_HIT
+	st  x, temp_reg
+
+continue:
+
+    inc  zl  ; for next input
+	add  index_reg, one_reg ; increment cntr
+	cpi index_reg, NUM_OF_POSITIONS
+    brne main ; do while (index_reg < NUM_POSITIONS) ....
+	rcall clearEntireBoard
+	rjmp end 
+	
+
+
+
+end: rjmp end
+
+;
+; SUBROUTINE getInputPosition: reads input_reg (2-digit hex number Row in Hi Digit, Column in Lo Digit
+;                           and divides it into row number & column number
+; Inputs: subr_param1_reg = input position
+; Outputs: reg X  contains the address of the position to display
+;          subr_param1_reg = row number
+;          subr_param2_reg = column number
+;
+getInputPosition:
+	push row_reg
+	push clm_reg
+
+	; first do the row number
+	mov  row_reg, subr_param1_reg
+	; clear column number, only ROW number remains
+	andi row_reg, LEFT_DIGIT_ONLY
+	LSR  row_reg     ; shift Row RIGHT 4 times to bring Left digit to position of right digit
+	LSR  row_reg
+	LSR  row_reg
+	LSR  row_reg
+	
+	; now do column number
+	mov  clm_reg, subr_param1_reg
+	; clear ROWnumber, only column number remains
+	andi clm_reg, RIGHT_DIGIT_ONLY
+
+	;now calculate the address of the input position
+	mov  subr_param1_reg, row_reg
+	mov  subr_param2_reg, clm_reg
+	rcall calcAddr
+	mov  subr_param1_reg, row_reg
+	mov  subr_param2_reg, clm_reg
+
+	pop clm_reg
+	pop row_reg
+
+	ret
+
+
+;
+; SUBROUTINE calcAddr - calculates the address of the position for input
+;                       column and row values
+;
+; Inputs: subr_param1_reg = row number
+;         subr_param2_reg = column number
+; Outputs: reg X  contains the address of the position to display
+;
+calcAddr:
+	push row_reg
+	push clm_reg
+	push temp_reg
+
+	; start with Row0 & add the input Row X ADVANCE_TO_NEXT_ROW_INCREMENT
+	ldi  temp_reg, ADVANCE_TO_NEXT_ROW_INCREMENT
+	mul  subr_param1_reg, temp_reg    ; result in R0 & R1
+	ldi  row_reg, row0
+	add  row_reg, r0
+	mov  xH, zero_reg   ; fix this to be more general!
+	mov  xL, row_reg
+	
+calcColumn:
+	mov clm_reg, subr_param2_reg
+	;add the column number the "base address" of the appropriate row address
+	add xL, clm_reg
+	adc xH, zero_reg
+	
+	pop	temp_reg
+	pop clm_reg
+	pop row_reg
+	ret
+
+;
+; SUBROUTINE display1Position - turns on the correct value at the address in X reg
+;
+; inputs:  X reg contains the address to update
+;          subr_param1_reg contains which player X (1) / O (0) / CLEAR (3)
+display1Position:
+
+push temp_reg
+
+	;check the input
+	cpi  subr_param1_reg, CLEAR_THE_POSITION
+	brne notClear
+	ldi  temp_reg, DISPLAY_CLEAR_CHAR
+	rjmp finished
+notClear:
+	cpi  subr_param1_reg, SET_POSITION_TO_X
+	brne notX
+	ldi  temp_reg, DISPLAY_X_CHAR
+	rjmp finished
+notX:
+	cpi  subr_param1_reg, SET_POSITION_TO_O
+	brne notO
+	ldi  temp_reg, DISPLAY_O_CHAR
+	rjmp  finished
+notO:
+	;handler error
+finished:
+	; output the correct char
+	st  X, temp_reg
+
+	pop temp_reg
+
+	ret
+	
+;
+; SUBROUTINE clearEntireBoard - must SIMULATE inputs & insert the address in X reg
+;
+; inputs:  none
+clearEntireBoard:
+	push temp_reg
+	push row_reg
+	push clm_reg
+	push index_reg
+	push input_reg
+	push zH
+
+	; initialize to first square position
+	ldi index_reg, 0    ; row counter
+	ldi temp_reg, 0     ; column counter
+	ldi input_reg, 0    ;start from position 00
+	
+loop1:
+	mov subr_param1_reg, input_reg 
+	rcall getInputPosition
+	; register X is set in getInputPosition
+	ldi  subr_param1_reg, CLEAR_THE_POSITION
+	rcall display1Position
+
+	add input_reg, one_reg   ; next position on row
+	add temp_reg, one_reg    ; next column	
+	cpi temp_reg,NUM_POSITIONS_PER_ROW
+	brne loop1
+	;finished the row, prepare the NEXT row
+	ldi temp_reg, 0    ; reset column cntr back to the beginning of the row
+	andi input_reg, LEFT_DIGIT_ONLY  ; clear the columns number (set it to 0)
+	ldi  zH, ADVANCE_TO_NEXT_ROW_INCREMENT  ; make use of zH as a temp reg!
+	add input_reg, zH         ; beginning of next row
+	add index_reg, one_reg  
+	cpi index_reg, NUM_OF_ROWS
+	brne loop1
+
+	pop zH
+	pop input_reg
+	pop index_reg
+    pop clm_reg
+	pop row_reg
+	pop temp_reg
+
+	ret
+
+
+putShip1:
+
+	push zH
+	push zL
+	push xL
+	push xH
+	push index_reg
+	push temp_reg
+	push one_reg
+
+	;read  ship location
+	ldi zH,high(ShipsLocation*2)
+	ldi zl,low(ShipsLocation*2)	
+	;[X] = address to start ship
+	mov xH,zero_reg
+	lpm xL,z
+	;display the ship
+	ldi index_reg, SHIP_SIZE
+ship1_loop:
+	ldi temp_reg,MT_SHIP
+	st  x,temp_reg
+	inc xL
+	dec index_reg
+	brne ship1_loop
+
+	pop one_reg
+	pop temp_reg
+	pop index_reg
+	pop xH
+	pop xL
+	pop zL
+	pop zH
+	ret
+
+putShip2:
+
+	push zH
+	push zL
+	push xL
+	push xH
+	push index_reg
+	push temp_reg
+	push one_reg
+
+	;read  ship location
+	ldi zH,high(ShipTwoLocation*2)
+	ldi zl,low(ShipTwoLocation*2)	
+	;[X] = address to start ship
+	mov xH,zero_reg
+	lpm xL,z
+	;display the ship
+ 	ldi index_reg, SHIP_SIZE
+ship2_loop:
+	ldi temp_reg,MT_SHIP
+	st  x,temp_reg
+	inc xL
+	dec index_reg
+	brne ship2_loop
+
+	pop one_reg
+	pop temp_reg
+	pop index_reg
+	pop xH
+	pop xL
+	pop zL
+	pop zH
+	ret
+
+putShip3:
+
+	push zH
+	push zL
+	push xL
+	push xH
+	push index_reg
+	push temp_reg
+	push one_reg
+
+	;read  ship location
+	ldi zH,high(ShipThreeLocation*2)
+	ldi zl,low(ShipThreeLocation*2)	
+	;[X] = address to start ship
+	mov xH,zero_reg
+	lpm xL,z
+	;display the ship
+	ldi index_reg, SHIP_SIZE
+ship3_loop:
+	ldi temp_reg,MT_SHIP
+	st  x,temp_reg
+	inc xL
+	dec index_reg
+	brne ship3_loop
+
+	pop one_reg
+	pop temp_reg
+	pop index_reg
+	pop xH
+	pop xL
+	pop zL
+	pop zH
+	ret
+GameInput: .db 0x00,0xa0, 0xa1, 0xa2, 0xa3,0xb0,0xb1,0xb2,0xb3,0xc0,0xc1,0xc2,0xc3,0xd0,0xd1,0xd2,0xd3,0xEE
+ShipsLocation: .db 0xa1,0xb1, 0xc0,0x00
+ShipTwoLocation: .db 0xc1,0xc2,0xc3,0x00
+ShipThreeLocation: .db 0xd0,0xd1,0xd2,0x00
